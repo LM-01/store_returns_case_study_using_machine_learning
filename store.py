@@ -2,6 +2,7 @@ from utils import get_distance
 
 class Store:
     def __init__(self, returns, city, state, store_num):
+        self.rev_per_unit = 6.51
         self.returns = returns 
         self.city = city
         self.state = state
@@ -13,7 +14,7 @@ class Store:
         self.store_type = None
         self.neighbor_stores = [] #sublist of [store_number, distance_to_neighbor, returns]
         self.neighbor_capacity = None
-        self.store_revenue = self.returns * rev_per_unit
+        self.store_revenue = self.returns * self.rev_per_unit
         self.rejected = False
       
     def reset_store(self):

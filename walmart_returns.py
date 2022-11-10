@@ -28,30 +28,26 @@ exports two files. One with the cluster information, and the other containing th
 stores in the cluster.
 """
 
-
-
-# LOAD DATA
-df = pd.read_csv(r'walmart_return_analysis_v2_9-7.csv')
-county_data = pd.read_csv(r'cities_data.csv')
-county_data['store_city'] = county_data['city'].str.upper()
-states = df.store_state.unique()
-merged = df.merge(county_data, left_on=['store_city','store_state'], right_on=['store_city','state_id'], how='left')
-
-rev_per_unit = 6.51
-            
-
 class Solver(Cluster, Store):
     def __init__(self, max_distance, max_returns):
-        self.max_distance = max_distance
-        self.max_returns = max_returns
+        self.max_distance = max_distance # Max distance from primary store
+        self.max_returns = max_returns # Max returns for a cluster
+        self.load_data()
         self.clusters = []
-        self.stores_list = self.create_stores()
         self.cluster_id = 1
         self.networks = []
+        self.stores_list = self.create_stores()
+
+    def load_data(self):
+        df = pd.read_csv(r'store_returns_analysis-7.csv')
+        county_data = pd.read_csv(r'cities_data.csv')
+        county_data['store_city'] = county_data['city'].str.upper()
+        self.states = df.store_state.unique()
+        self.merged = df.merge(county_data, left_on=['store_city','store_state'], right_on=['store_city','state_id'], how='left')
                 
     def create_stores(self):
         stores_list = []
-        for i,row in merged.iterrows():
+        for i,row in self.merged.iterrows():
             # print(row['Daily Returns'])
             store = Store(row['Daily Returns'],
                           row['store_city'],
@@ -64,6 +60,7 @@ class Solver(Cluster, Store):
         return stores_list
     
     def find_primary_store_in_state(self, state):
+        # Returns an available store with the most returns in a state
         stores_in_state = self.available_stores_in_state(state)
         stores_in_state.sort(reverse=True, key=store_sort)
         if len(stores_in_state) == 0:
@@ -73,6 +70,7 @@ class Solver(Cluster, Store):
         return primary
     
     def cal_distance_to_primary(self, store, primary):
+        # Calculates the distance from a store to a primary store
         return round(get_distance(primary.lat, primary.lng, store.lat, store.lng),2)
     
     def available_stores_in_state(self, state):
@@ -91,7 +89,7 @@ class Solver(Cluster, Store):
         # Saves the existing clusters in the archived clusters file
         self.archived_clusters = self.clusters
         self.clusters = []
-        for state in states:
+        for state in self.states:
             #print(f'Running solver for: {state}')
             if state not in ['AK','CA','HI']:
               loop_run = True
@@ -119,14 +117,14 @@ class Solver(Cluster, Store):
         # Saves the existing clusters in the archived clusters file
         # self.archived_clusters = self.clusters
         self.clusters = []
-        for state in states:
+        for state in self.states:
             if state not in ['AK','CA','HI']:
             #TESTING FOR FL
             #if state == 'FL':
               print(f'Running solver for: {state}')
               loop_run = True
               while loop_run:
-                  primary = self.find_primary_store_in_state(state)
+                  primary = self.find_primary_store_in_state(state) 
                   if primary != False:
                       # Create a cluster and add a primary
                       cluster = self.create_cluster()
@@ -210,7 +208,7 @@ class Solver(Cluster, Store):
         df2.to_csv(r'exports/cluster_store_list.csv',index=False)
 
 # Calculate the optimal path
-def calculate_optimal_paths():
+def calculate_optimal_paths(solver):
   routes = []
   cluster_exports = []
   for i,cluster in enumerate(solver.clusters):
@@ -226,14 +224,14 @@ def calculate_optimal_paths():
 #with open('/content/solver-saved', 'rb') as file:
 #  solver = pickle.load(file)
 
-def save_model():
+def save_model(solver):
   filename = 'solver-saved-v2'
   outfile = open(filename, 'wb')
   pickle.dump(solver,outfile)
   outfile.close()
   print('Model Saved!')
 
-def update_store_data():
+def update_store_data(solver):
   new_store_data = pd.read_csv(r'wm_stores_v2.csv')
   new_store_data.dropna(inplace=True)
   new_store_data['Zip Code'] = new_store_data['Zip Code'].astype(int)
@@ -253,10 +251,10 @@ def update_store_data():
         store.lat = lat
         store.lng = lng
 
-def test_new_inport():
+def test_new_import():
   test_store = solver.clusters[0].all_stores_in_cluster[2]
 
-def full_store_list():
+def full_store_list(solver):
   #Returns an array with all the stores available in solver and clusters
   stores = []
   for i,cluster in enumerate(solver.clusters):
@@ -266,37 +264,3 @@ def full_store_list():
 
 stores = full_store_list()
 test_store = [store for store in stores if store.store_number == 5293]
-
-len(solver.stores_list)
-
-solver.stores_list = full_store_list()
-
-"""Running the new process here.
-
-1.   Create new clusters and add stores based on the new requirements
-2.   run the optimzation path
-3.   save the file
-
-
-"""
-
-solver = Solver(50,1000)
-update_store_data()
-solver.run_v2()
-save_model()
-
-# Just exporting the data
-routes = []
-cluster_exports = []
-for i,cluster in enumerate(solver.clusters):
-  if len(cluster.all_stores_in_cluster) > 1:
-    exports = cluster.cluster_export()
-    cluster_exports.append(exports)
-
-data_frame = pd.DataFrame(cluster_exports)
-data_frame.to_csv('results_optimized_stores.csv', index=False)
-
-print('Done')
-
-save_model()
-
