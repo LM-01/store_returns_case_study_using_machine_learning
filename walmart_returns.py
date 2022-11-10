@@ -14,58 +14,21 @@ Created on Fri Aug 27 11:37:09 2021
 @author: lmollinedo
 """
 
-!pip install mlrose
-
 import pandas as pd
 import numpy as np
-from math import radians, cos, sin, asin, sqrt
 import math
-import mlrose
 import pickle
+from cluster import Cluster
+from store import Store
+from utils import get_distance, store_sort
 
 """
 Creates clusters of stores based on the distance from the primary stores, and
 exports two files. One with the cluster information, and the other containing the list of 
 stores in the cluster.
-
 """
 
-############################# HELPERS ########################
-def get_distance(lat1, lon1, lat2, lon2):
-    # Returns distance between two lat/lon points in KM
-    # The math module contains a function named radians which converts from degrees to radians.
-    lon1 = radians(lon1)
-    lon2 = radians(lon2)
-    lat1 = radians(lat1)
-    lat2 = radians(lat2)
- 
-    # Haversine formula 
-    dlon = lon2 - lon1 
-    dlat = lat2 - lat1 
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a)) 
-    r = 6371 # Radius of earth in kilometers. Use 3956 for miles
-    
-    #Display the result
-    # print("Distance is: ",c*r,"Kilometers")
-    return c*r
 
-def store_sort(x):
-    return x.returns
-
-def re_arrange_path(x):
-  # Finds the primary store (0), and rearranges the path \
-  # so that it starts at the primary store
-  zero = x.index(0)
-  to_move = x[:zero]
-  start = x[zero:]
-  new_list = start + to_move
-  return new_list
-
-def sort_sublist(values, e_index, reverse = False):
-    return values.sort(key= lambda x: x[1], reversed = reverse)
-
-############################ END OF HELPERS #############################
 
 # LOAD DATA
 df = pd.read_csv(r'walmart_return_analysis_v2_9-7.csv')
@@ -75,174 +38,7 @@ states = df.store_state.unique()
 merged = df.merge(county_data, left_on=['store_city','store_state'], right_on=['store_city','state_id'], how='left')
 
 rev_per_unit = 6.51
-
-class Store:
-    def __init__(self, returns, city, state, store_num):
-        self.returns = returns 
-        self.city = city
-        self.state = state
-        self.store_number = store_num
-        self.paired = False
-        self.lat = 0
-        self.lng = 0
-        self.distance_to_primary = None
-        self.store_type = None
-        self.neighbor_stores = [] #sublist of [store_number, distance_to_neighbor, returns]
-        self.neighbor_capacity = None
-        self.store_revenue = self.returns * rev_per_unit
-        self.rejected = False
-      
-    def reset_store(self):
-      self.paired = False
-      self.distance_to_primary = None
-      self.store_type = None
-    
-    def calc_distance_to_other_store(self, other_store):
-        distance = get_distance(other_store.lat, other_store.lng, self.lat, self.lng)
-        if distance == 0:
-          distance = 3 # Minimum store distance
-        return round(distance,2)
-    
-    def calc_neighbor_capacity(self):
-        cap = 0
-        for neighbor in self.neighbor_stores:
-            cap += neighbor[2]
-        self.neighbor_capacity = cap
-        return cap
             
-class Cluster:
-    def __init__(self, cluster_id):
-        self.state = None
-        self.primary = None
-        self.satelite_stores = []
-        self.all_stores_in_cluster = []
-        self.cluster_returns = 0
-        self.cluster_id = cluster_id
-        self.miles_to_sweep = 0
-        self.max_distance = 60
-        self.cluster_connections = None
-        self.store_cluster_id = 0
-        self.optimal_path = {}
-        self.path = []
-        
-    def assign_store_cluster_id(self):
-        for i,store in enumerate(self.all_stores_in_cluster):
-            store.store_cluster_id = i
-
-    def add_primary(self, store):
-        #print(f'Adding Primary: {store.store_number}')
-        store.paired = True
-        store.store_cluster_id = self.assign_store_cluster_id()
-        self.cluster_returns += store.returns
-        self.primary = store
-        store.distance_to_primary = 0
-        self.all_stores_in_cluster.append(store)
-        
-    
-    def add_store(self, store):
-        if store.paired == True:
-            raise Exception("Cannot add a paired store to a cluster")
-        if math.isnan(store.lat) or math.isnan(store.lng):
-            store.rejected = True
-            print(f'Did not add store {store.store_number} due to bad coordinates.')
-        else:
-            store.paired = True
-            store.store_cluster_id = self.assign_store_cluster_id()
-            self.cluster_returns += store.returns
-            self.satelite_stores.append(store)
-            self.all_stores_in_cluster.append(store)
-            #print(f'Adding store: {store.store_number} - Cluster Returns: {self.cluster_returns}')
-    
-    def remove_store(self, store):
-        # Removes the store from the cluster and makes it available again
-        store.paired = False
-        store.store_cluster_id = None
-        self.cluster_returns -= store.returns
-        self.satelite_stores = [storex for storex in self.satelite_stores if storex != store]
-        self.all_stores_in_cluster = [self.primary] + self.satelite_stores
-
-    def remove_last_store_added(self):
-        # Removes the last store added to the cluster
-        store = self.all_stores_in_cluster.pop()
-        self.remove_store(store)
-    
-    def calc_miles_to_sweep(self):
-        #Adds the miles from the primary store to all the satellite stores
-        miles = 0
-        for store in self.satelite_stores:
-            miles += store.calc_distance_to_other_store(self.primary)
-        self.miles_to_sweep = miles
-        return miles
-
-    def calc_cluster_store_distances(self):
-        # Returns the distance between each of the stores in the cluster stores list
-        self.assign_store_cluster_id()
-        distances = []
-        for i,store in enumerate(self.all_stores_in_cluster):
-            for j, next_store in enumerate(self.all_stores_in_cluster):
-                dist = store.calc_distance_to_other_store(next_store)
-                if i == j:
-                    pass
-                else:
-                    distances.append((store.store_cluster_id, next_store.store_cluster_id, dist))
-        return distances
-    
-    
-    def get_optimial_path(self):
-        # Calculate the best optimal route for each cluster, and appends it to the "optimal_path" attributes
-        # returns the best_fitness aka number of miles of the path
-        routes = self.calc_cluster_store_distances()
-        print(f'Getting optimal route for: {self.state} {routes}')
-        if len(routes) > 1:
-          self.cluster_connections = routes
-          fitness_dists = mlrose.TravellingSales(distances = routes)
-          problem_fit = mlrose.TSPOpt(length = len(self.all_stores_in_cluster), fitness_fn = fitness_dists,
-                            maximize=False)
-          # Solve problem using the genetic algorithm
-          best_state, best_fitness = mlrose.genetic_alg(problem_fit, mutation_prob = 0.2, 
-                          max_attempts = 100, random_state = 2)
-          
-          # Re-arrange paths
-          best_state = re_arrange_path(best_state.tolist())
-          # Translate path to store numbers
-          best_state_store_nums = []
-          for x in best_state:
-            store_num = self.all_stores_in_cluster[x]
-            best_state_store_nums.append(store_num.store_number)
-          print(routes)
-          print('The best state found is: ', best_state)
-          print(f'Translated store#: {best_state_store_nums}')
-          print('The fitness at the best state is: ', best_fitness)
-          print(f'Returns for Cluster: {self.cluster_returns} --- Miles per Return: {best_fitness/self.cluster_returns}')
-          self.optimal_path['cluster_optimal_route'] = best_state_store_nums
-          self.optimal_path['miles_per_retun'] = best_fitness/self.cluster_returns
-          self.optimal_path['route_miles'] = best_fitness
-          return best_fitness
-
-    def cluster_info(self):
-        primary_store_number = self.primary.store_number
-        store_nums = [store.store_number for store in self.satelite_stores]
-        store_nums.insert(0, primary_store_number)
-        stores_in_cluster = [str(store.store_number) for store in self.all_stores_in_cluster]
-        export = [self.cluster_id, self.state, round(self.cluster_returns,2), round(self.calc_miles_to_sweep(),2), stores_in_cluster]
-        # print(export)
-        return export
-
-    def cluster_export(self):
-        # Retuns dictionary with the following columns:
-        # Primary Store #, Satelite store locations (concat), returns of satelite stores (concat) \
-        # primary returns, total cluster return, returns collection path ( concat), route miles, miles per return
-        export = {}
-        export['cluster_state'] = [self.state]
-        export['cluster_total_returns'] = [self.cluster_returns]
-        export['primary_store_number'] = [self.primary.store_number]
-        export['primary_returns'] = [self.primary.returns]
-        export['satellite_store_numbers'] = [str([ x.store_number for x in self.satelite_stores])]
-        export['drive_order'] = [str(self.optimal_path['cluster_optimal_route'])]
-        export['route_miles'] = [self.optimal_path['route_miles']]
-        export['revenue_for_cluster'] = sum([store.store_revenue for store in self.all_stores_in_cluster])
-        #print(export)
-        return export
 
 class Solver(Cluster, Store):
     def __init__(self, max_distance, max_returns):
