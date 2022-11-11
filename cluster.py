@@ -1,5 +1,8 @@
 from utils import re_arrange_path
 import math
+import six
+import sys
+sys.modules['sklearn.externals.six'] = six
 import mlrose
 
 class Cluster:

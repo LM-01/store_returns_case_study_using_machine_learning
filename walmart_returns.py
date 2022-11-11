@@ -36,12 +36,14 @@ class Solver(Cluster, Store):
         self.clusters = []
         self.cluster_id = 1
         self.networks = []
+        self.excluded_states = ['AK','CA','HI']
         self.stores_list = self.create_stores()
 
     def load_data(self):
-        df = pd.read_csv(r'store_returns_analysis-7.csv')
+        df = pd.read_csv(r'store_returns_analysis.csv')
+        df['store_city'] = df['store_city'].str.lower()
         county_data = pd.read_csv(r'cities_data.csv')
-        county_data['store_city'] = county_data['city'].str.upper()
+        county_data['store_city'] = county_data['city'].str.lower()
         self.states = df.store_state.unique()
         self.merged = df.merge(county_data, left_on=['store_city','store_state'], right_on=['store_city','state_id'], how='left')
                 
@@ -83,44 +85,12 @@ class Solver(Cluster, Store):
         cluster = Cluster(self.cluster_id)
         self.cluster_id += 1
         return cluster
-
-    def run(self):
-        # Will clear the clusters and create new routes based on specifications
-        # Saves the existing clusters in the archived clusters file
-        self.archived_clusters = self.clusters
-        self.clusters = []
-        for state in self.states:
-            #print(f'Running solver for: {state}')
-            if state not in ['AK','CA','HI']:
-              loop_run = True
-              while loop_run:
-                  primary = self.find_primary_store_in_state(state)
-                  if primary != False:
-                      cluster = self.create_cluster()
-                      cluster.state = state
-                      cluster.add_primary(primary)
-                      stores_in_state = self.available_stores_in_state(state)
-                      for store in stores_in_state:
-                          store.distance_to_primary = self.cal_distance_to_primary(store, primary)
-                          #### ORIGINAL METHOD - DO NOT DELETE YET ##########
-                          #if store.distance_to_primary < self.max_distance and cluster.cluster_returns < self.max_returns:
-                          if store.distance_to_primary < self.max_distance:
-                              cluster.add_store(store)
-                      self.clusters.append(cluster)
-                  else:
-                      loop_run = False
-              else:
-                pass
             
     def run_v2(self):
         # Will clear the clusters and create new routes based on specifications
-        # Saves the existing clusters in the archived clusters file
-        # self.archived_clusters = self.clusters
         self.clusters = []
         for state in self.states:
-            if state not in ['AK','CA','HI']:
-            #TESTING FOR FL
-            #if state == 'FL':
+            if state not in self.excluded_states:
               print(f'Running solver for: {state}')
               loop_run = True
               while loop_run:
@@ -251,7 +221,7 @@ def update_store_data(solver):
         store.lat = lat
         store.lng = lng
 
-def test_new_import():
+def test_new_import(solver):
   test_store = solver.clusters[0].all_stores_in_cluster[2]
 
 def full_store_list(solver):
@@ -262,5 +232,3 @@ def full_store_list(solver):
       stores.append(store)
   return stores
 
-stores = full_store_list()
-test_store = [store for store in stores if store.store_number == 5293]
